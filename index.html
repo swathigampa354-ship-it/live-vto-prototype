@@ -56,7 +56,7 @@
     <div style="font-size:0.68rem;color:#94a3b8;letter-spacing:0.06em;text-transform:uppercase;">Live render</div>
   </div>
   <div class="hint">Stand facing the camera · The shirt tracks your shoulders and torso · MediaPipe Pose Landmarker runs in-browser</div>
-  <div class="loading" id="loading"><div class="spinner"></div><div style="font-size:0.8rem;color:#94a3b8;">Loading pose tracker (MediaPipe)…</div></div>
+  <div class="loading" id="loading"><div class="spinner"></div><div id="load-text" style="font-size:0.8rem;color:#94a3b8;">Initialising…</div><button id="btn-retry" style="display:none;margin-top:10px;padding:8px 16px;">Retry</button></div>
 </div>
 
 <script type="importmap">
@@ -77,42 +77,46 @@ const canvas = document.getElementById('output');
 const ctx = canvas.getContext('2d');
 const status = document.getElementById('status');
 const loading = document.getElementById('loading');
+const loadText = document.getElementById('load-text');
+const retryBtn = document.getElementById('btn-retry');
 const camBadge = document.getElementById('cam-badge');
 const camBtn = document.getElementById('btn-cam');
 
 let poseLandmarker = null;
 let cameraStarted = false;
+let trackerReady = false;
 let shirtImg = null;
 let state = { showShirt: true, mirror: true };
 
-// Preload shirt asset
-shirtImg = new Image();
-shirtImg.crossOrigin = 'anonymous';
-shirtImg.src = SHIRT_URL;
-shirtImg.onload = () => {
-  status.textContent = 'Shirt asset loaded — tracker loading…';
-};
-shirtImg.onerror = () => {
-  console.warn('Shirt image failed to load (CORS or path). Will draw fallback.');
-};
-
 // Pose landmark indices
 const LS = 11; // left shoulder
-const RS = 12; // right shoulder;
+const RS = 12; // right shoulder
 const LH = 23; // left hip
 const RH = 24; // right hip;
 
 function norm(lm, w, h) { return { x: lm.x * w, y: lm.y * h }; }
 
 // ---------- UI ----------
+function setStatus(msg, err = false) {
+  status.textContent = msg;
+  if (err) status.style.color = '#f87171';
+}
 function setShirt(show) {
   state.showShirt = show;
   document.getElementById('btn-shirt').classList.toggle('active', show);
   document.getElementById('btn-none').classList.toggle('active', !show);
-  status.textContent = show ? 'Tracker active — shirt on body' : 'Tracker active — no shirt';
+  setStatus(show ? 'Tracker active — shirt on body' : 'Tracker active — no shirt');
 }
 document.getElementById('btn-shirt').addEventListener('click', () => setShirt(true));
 document.getElementById('btn-none').addEventListener('click', () => setShirt(false));
+
+retryBtn.addEventListener('click', () => {
+  retryBtn.style.display = 'none';
+  loading.style.display = 'flex';
+  loadText.textContent = 'Initialising…';
+  setStatus('Initialising…');
+  initTracker();
+});
 
 camBtn.addEventListener('click', async () => {
   if (!cameraStarted) await startCamera();
@@ -129,9 +133,22 @@ document.getElementById('btn-photo').addEventListener('click', () => {
   link.click();
 });
 
+// Preload shirt asset
+shirtImg = new Image();
+shirtImg.crossOrigin = 'anonymous';
+shirtImg.src = SHIRT_URL;
+shirtImg.onload = () => {
+  console.log('Shirt asset loaded');
+};
+shirtImg.onerror = () => {
+  console.warn('Shirt image failed to load');
+};
+
 // ---------- Camera ----------
 async function startCamera() {
   try {
+    camBtn.disabled = true;
+    setStatus('Requesting camera permission…');
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 1280, height: 720 } });
     video.srcObject = stream;
     await new Promise(r => video.onloadedmetadata = r);
@@ -140,13 +157,16 @@ async function startCamera() {
     cameraStarted = true;
     camBtn.textContent = 'Stop Camera';
     camBtn.classList.remove('active');
+    camBtn.disabled = false;
     camBadge.classList.add('active');
     document.getElementById('btn-photo').style.display = 'inline-block';
-    status.textContent = 'Camera on — initialising pose tracker…';
-    await initTracker();
+    loading.style.display = 'none';
+    setStatus('Camera on — loading pose tracker…');
+    await ensureTracker();
   } catch (err) {
     console.error(err);
-    status.textContent = 'Camera access denied or unavailable.';
+    camBtn.disabled = false;
+    setStatus('Camera access denied or unavailable.', true);
     alert('Could not access camera. Please allow camera permissions and reload.');
   }
 }
@@ -161,28 +181,39 @@ function stopCamera() {
   camBadge.classList.remove('active');
   document.getElementById('btn-photo').style.display = 'none';
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  status.textContent = 'Camera stopped';
+  setStatus('Camera stopped');
 }
 
 // ---------- MediaPipe Pose tracker ----------
-async function initTracker() {
+async function ensureTracker() {
+  if (trackerReady && poseLandmarker) {
+    setStatus('Tracker ready — move into frame');
+    detectLoop();
+    return;
+  }
+  loading.style.display = 'flex';
+  loadText.textContent = 'Loading MediaPipe model (may take 10-30s)…';
+  setStatus('Loading pose tracker model…');
   try {
     const vision = await FilesetResolver.forVisionTasks(
       'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
     );
+    loadText.textContent = 'Initialising pose landmarker…';
     poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
       baseOptions: { modelAssetPath: MODEL_URL },
       runningMode: 'VIDEO',
       numPoses: 1
     });
+    trackerReady = true;
     loading.style.display = 'none';
-    status.textContent = 'Pose tracker ready — start camera';
     camBtn.disabled = false;
+    setStatus('Tracker ready — stand facing camera');
     detectLoop();
   } catch (err) {
     console.error(err);
-    status.textContent = 'Pose tracker failed to load.';
-    loading.innerHTML = '<div style="color:#f87171;">Tracker failed — see console.</div>';
+    loading.style.display = 'none';
+    retryBtn.style.display = 'inline-block';
+    setStatus('Pose tracker failed to load — click Retry', true);
   }
 }
 
@@ -199,42 +230,34 @@ function detectLoop() {
 function drawShirtOnBody(lm, w, h) {
   if (!shirtImg || !shirtImg.complete) return;
 
-  const ls = norm(lm[LS], w, h);  // left shoulder
-  const rs = norm(lm[RS], w, h);  // right shoulder
-  const lh = norm(lm[LH], w, h);  // left hip
-  const rh = norm(lm[RH], w, h);  // right hip
+  const ls = norm(lm[LS], w, h);
+  const rs = norm(lm[RS], w, h);
+  const lh = norm(lm[LH], w, h);
+  const rh = norm(lm[RH], w, h);
 
-  // Shoulder midpoint and hip midpoint
   const smx = (ls.x + rs.x) / 2;
   const smy = (ls.y + rs.y) / 2;
   const hmx = (lh.x + rh.x) / 2;
   const hmy = (lh.y + rh.y) / 2;
 
-  // Shoulder width and torso length
   const shoulderW = Math.hypot(rs.x - ls.x, rs.y - ls.y);
   const torsoH = Math.hypot(hmx - smx, hmy - smy);
 
   if (shoulderW < 20 || torsoH < 20) return;
 
-  // Shirt sizing: width ~ 2.2x shoulder width, height ~ 1.9x torso length
   const shirtW = shoulderW * 2.4;
   const shirtH = torsoH * 1.9;
 
-  // Aspect-correct the image so it isn't stretched
   const imgAspect = shirtImg.naturalWidth / shirtImg.naturalHeight;
   let drawW = shirtW;
   let drawH = shirtW / imgAspect;
   if (drawH < shirtH * 0.75) { drawH = shirtH; drawW = shirtH * imgAspect; }
 
-  // Angle of the shoulders (for rotation)
   const angle = Math.atan2(rs.y - ls.y, rs.x - ls.x);
-
-  // Position: shirt center slightly below shoulder midpoint (collar area)
   const cx = smx;
   const cy = smy + torsoH * 0.12;
 
   ctx.save();
-  // Move to center, rotate to match shoulder angle, then draw centered
   ctx.translate(cx, cy);
   ctx.rotate(angle);
   ctx.drawImage(shirtImg,
@@ -244,7 +267,10 @@ function drawShirtOnBody(lm, w, h) {
 
 function draw(result) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (!result || !result.poseLandmarks || result.poseLandmarks.length === 0) return;
+  if (!result || !result.poseLandmarks || result.poseLandmarks.length === 0) {
+    // Still draw video frame even if no pose detected
+    return;
+  }
 
   const lm = result.poseLandmarks[0];
   const w = canvas.width, h = canvas.height;
@@ -254,9 +280,12 @@ function draw(result) {
   }
 }
 
-// Init tracker on load (model load), camera starts when user clicks
-initTracker();
-loading.textContent = 'Loading pose tracker… click Start Camera when ready';
+// Start: load tracker in background (don't block UI)
+loading.style.display = 'flex';
+loadText.textContent = 'Loading MediaPipe model…';
+setStatus('Initialising in background…');
+camBtn.disabled = true;
+ensureTracker();
 </script>
 </body>
 </html>
