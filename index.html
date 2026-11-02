@@ -19,7 +19,7 @@
   button.active { border-color: var(--accent); background: #064e5b; color: #fff; box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.15); }
   button:disabled { opacity: 0.45; cursor: not-allowed; filter: grayscale(0.6); }
   .stage { position: relative; width: 100%; height: 100%; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-  video#input-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); opacity: 0.45; }
+  video#input-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); opacity: 1; }
   canvas#output { position: relative; width: 100%; height: 100%; transform: scaleX(-1); }
   .bottom-bar { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 10px; background: var(--panel); padding: 10px 18px; border-radius: 999px; border: 1px solid #334155; backdrop-filter: blur(10px); z-index: 30; }
   .status { position: absolute; top: 14px; right: 14px; font-size: 0.72rem; padding: 6px 11px; border-radius: 8px; background: rgba(2, 6, 23, 0.7); border: 1px solid #334155; color: var(--accent); z-index: 35; backdrop-filter: blur(4px); pointer-events: none; }
@@ -56,7 +56,7 @@
     <div style="font-size:0.68rem;color:#94a3b8;letter-spacing:0.06em;text-transform:uppercase;">Live render</div>
   </div>
   <div class="hint">Stand facing the camera · The shirt tracks your shoulders and torso · MediaPipe Pose Landmarker runs in-browser</div>
-  <div class="loading" id="loading"><div class="spinner"></div><div id="load-text" style="font-size:0.8rem;color:#94a3b8;">Initialising…</div><button id="btn-retry" style="display:none;margin-top:10px;padding:8px 16px;">Retry</button></div>
+  <div class="loading" id="loading"><div class="spinner"></div><div id="load-text" style="font-size:0.8rem;color:#94a3b8;">Loading tracker…</div><div id="load-progress" style="font-size:0.68rem;color:#64748b;margin-top:4px;">This may take 10–30 seconds on first load</div><button id="btn-retry" style="display:none;margin-top:10px;padding:8px 16px;">Retry</button></div>
 </div>
 
 <script type="importmap">
@@ -69,7 +69,8 @@
 <script type="module">
 import { PoseLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 
-const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task';
+// Use the lighter/full model (faster to load than 'heavy')
+const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
 const SHIRT_URL = 'assets/shirt.png';
 
 const video = document.getElementById('input-video');
@@ -78,6 +79,7 @@ const ctx = canvas.getContext('2d');
 const status = document.getElementById('status');
 const loading = document.getElementById('loading');
 const loadText = document.getElementById('load-text');
+const loadProgress = document.getElementById('load-progress');
 const retryBtn = document.getElementById('btn-retry');
 const camBadge = document.getElementById('cam-badge');
 const camBtn = document.getElementById('btn-cam');
@@ -85,10 +87,11 @@ const camBtn = document.getElementById('btn-cam');
 let poseLandmarker = null;
 let cameraStarted = false;
 let trackerReady = false;
+let trackerFailed = false;
 let shirtImg = null;
-let state = { showShirt: true, mirror: true };
+let state = { showShirt: true };
 
-// Pose landmark indices
+// Pose landmark indices (MediaPipe Pose)
 const LS = 11; // left shoulder
 const RS = 12; // right shoulder
 const LH = 23; // left hip
@@ -99,22 +102,24 @@ function norm(lm, w, h) { return { x: lm.x * w, y: lm.y * h }; }
 // ---------- UI ----------
 function setStatus(msg, err = false) {
   status.textContent = msg;
-  if (err) status.style.color = '#f87171';
+  status.style.color = err ? '#f87171' : '#22d3ee';
 }
 function setShirt(show) {
   state.showShirt = show;
   document.getElementById('btn-shirt').classList.toggle('active', show);
   document.getElementById('btn-none').classList.toggle('active', !show);
-  setStatus(show ? 'Tracker active — shirt on body' : 'Tracker active — no shirt');
+  setStatus(show ? 'Shirt ON — standing in frame?' : 'Shirt OFF');
 }
 document.getElementById('btn-shirt').addEventListener('click', () => setShirt(true));
 document.getElementById('btn-none').addEventListener('click', () => setShirt(false));
 
 retryBtn.addEventListener('click', () => {
+  trackerFailed = false;
   retryBtn.style.display = 'none';
   loading.style.display = 'flex';
-  loadText.textContent = 'Initialising…';
-  setStatus('Initialising…');
+  loadText.textContent = 'Reloading tracker…';
+  loadProgress.textContent = 'Please wait…';
+  setStatus('Reloading tracker…');
   initTracker();
 });
 
@@ -137,19 +142,17 @@ document.getElementById('btn-photo').addEventListener('click', () => {
 shirtImg = new Image();
 shirtImg.crossOrigin = 'anonymous';
 shirtImg.src = SHIRT_URL;
-shirtImg.onload = () => {
-  console.log('Shirt asset loaded');
-};
-shirtImg.onerror = () => {
-  console.warn('Shirt image failed to load');
-};
+shirtImg.onload = () => console.log('Shirt asset loaded');
+shirtImg.onerror = () => console.warn('Shirt image failed to load');
 
 // ---------- Camera ----------
 async function startCamera() {
   try {
     camBtn.disabled = true;
     setStatus('Requesting camera permission…');
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 1280, height: 720 } });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: 1280, height: 720 }
+    });
     video.srcObject = stream;
     await new Promise(r => video.onloadedmetadata = r);
     canvas.width = video.videoWidth;
@@ -161,8 +164,14 @@ async function startCamera() {
     camBadge.classList.add('active');
     document.getElementById('btn-photo').style.display = 'inline-block';
     loading.style.display = 'none';
-    setStatus('Camera on — loading pose tracker…');
-    await ensureTracker();
+    if (trackerReady) {
+      setStatus('Camera on — stand facing the camera');
+      detectLoop();
+    } else if (trackerFailed) {
+      setStatus('Camera ready — tracker failed. Click Retry above.', true);
+    } else {
+      setStatus('Camera on — tracker still loading…');
+    }
   } catch (err) {
     console.error(err);
     camBtn.disabled = false;
@@ -185,14 +194,15 @@ function stopCamera() {
 }
 
 // ---------- MediaPipe Pose tracker ----------
-async function ensureTracker() {
+async function initTracker() {
   if (trackerReady && poseLandmarker) {
-    setStatus('Tracker ready — move into frame');
-    detectLoop();
+    setStatus('Tracker ready — stand facing camera');
+    if (cameraStarted) detectLoop();
     return;
   }
   loading.style.display = 'flex';
-  loadText.textContent = 'Loading MediaPipe model (may take 10-30s)…';
+  loadText.textContent = 'Loading MediaPipe model…';
+  loadProgress.textContent = 'First load may take 10–30 seconds';
   setStatus('Loading pose tracker model…');
   try {
     const vision = await FilesetResolver.forVisionTasks(
@@ -208,17 +218,21 @@ async function ensureTracker() {
     loading.style.display = 'none';
     camBtn.disabled = false;
     setStatus('Tracker ready — stand facing camera');
-    detectLoop();
+    if (cameraStarted) detectLoop();
   } catch (err) {
-    console.error(err);
+    console.error('Tracker init error:', err);
+    trackerFailed = true;
     loading.style.display = 'none';
     retryBtn.style.display = 'inline-block';
-    setStatus('Pose tracker failed to load — click Retry', true);
+    setStatus('Pose tracker failed — click Retry', true);
+    if (cameraStarted) {
+      setStatus('Camera ready — tracker failed. Click Retry above.', true);
+    }
   }
 }
 
 function detectLoop() {
-  if (!cameraStarted || !poseLandmarker) return;
+  if (!cameraStarted || !poseLandmarker || trackerFailed) return;
   const now = performance.now();
   poseLandmarker.detectForVideo(video, now, (result) => {
     draw(result);
@@ -267,8 +281,15 @@ function drawShirtOnBody(lm, w, h) {
 
 function draw(result) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
   if (!result || !result.poseLandmarks || result.poseLandmarks.length === 0) {
-    // Still draw video frame even if no pose detected
+    if (state.showShirt) {
+      // No person detected — show a hint on canvas
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.font = '16px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('Step into the frame — shirt will appear on your torso', canvas.width / 2, canvas.height / 2);
+    }
     return;
   }
 
@@ -280,12 +301,13 @@ function draw(result) {
   }
 }
 
-// Start: load tracker in background (don't block UI)
+// Start: load tracker in background immediately
 loading.style.display = 'flex';
-loadText.textContent = 'Loading MediaPipe model…';
+loadText.textContent = 'Loading tracker…';
+loadProgress.textContent = 'First load may take 10–30 seconds';
 setStatus('Initialising in background…');
 camBtn.disabled = true;
-ensureTracker();
+initTracker();
 </script>
 </body>
 </html>
