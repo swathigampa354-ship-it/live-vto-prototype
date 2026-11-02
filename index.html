@@ -3,72 +3,60 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Live VTO — Virtual Try-On Prototype</title>
+<title>Live VTO — Shirt on Body (Pose Tracking)</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  :root { --accent: #22d3ee; --panel: rgba(15, 23, 42, 0.7); }
+  :root { --accent: #22d3ee; --panel: rgba(15, 23, 42, 0.75); }
   html, body { height: 100%; }
   body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #020617; color: #f8fafc; overflow: hidden; }
   #app { position: relative; width: 100vw; height: 100vh; display: grid; grid-template-rows: auto 1fr; }
   header { padding: 12px 16px; background: var(--panel); backdrop-filter: blur(6px); display: flex; flex-direction: column; gap: 8px; z-index: 30; border-bottom: 1px solid #334155; }
   h1 { font-size: 1.05rem; letter-spacing: 0.06em; color: var(--accent); font-weight: 600; }
-  .tagline { font-size: 0.78rem; color: #94a3b8; }
-  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+  .tagline { font-size: 0.78rem; color: #94a3b8; line-height: 1.3; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
   button { padding: 8px 14px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; border-radius: 10px; cursor: pointer; font-size: 0.82rem; font-weight: 500; transition: all 0.15s; }
   button:hover { border-color: #475569; background: #1e293b; }
   button.active { border-color: var(--accent); background: #064e5b; color: #fff; box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.15); }
   button:disabled { opacity: 0.45; cursor: not-allowed; filter: grayscale(0.6); }
   .stage { position: relative; width: 100%; height: 100%; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-  video#input-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); opacity: 0.55; }
+  video#input-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); opacity: 0.45; }
   canvas#output { position: relative; width: 100%; height: 100%; transform: scaleX(-1); }
   .bottom-bar { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 10px; background: var(--panel); padding: 10px 18px; border-radius: 999px; border: 1px solid #334155; backdrop-filter: blur(10px); z-index: 30; }
-  .category-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center; }
-  .category { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-  .category .label { font-size: 0.68rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
-  .swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; transition: transform 0.1s, border-color 0.15s; }
-  .swatch:hover { transform: scale(1.12); }
-  .swatch.selected { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.2); }
-  .color-grid { display: grid; grid-template-columns: repeat(4, 26px); gap: 6px; }
-  .status { position: absolute; top: 14px; right: 14px; font-size: 0.72rem; padding: 6px 11px; border-radius: 8px; background: rgba(2, 6, 23, 0.7); border: 1px solid #334155; color: var(--accent); z-index: 35; backdrop-filter: blur(4px); }
-  .hint { position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%); font-size: 0.72rem; color: #64748b; pointer-events: none; z-index: 5; letter-spacing: 0.02em; }
+  .status { position: absolute; top: 14px; right: 14px; font-size: 0.72rem; padding: 6px 11px; border-radius: 8px; background: rgba(2, 6, 23, 0.7); border: 1px solid #334155; color: var(--accent); z-index: 35; backdrop-filter: blur(4px); pointer-events: none; }
+  .cam-badge { position: absolute; top: 14px; left: 14px; font-size: 0.7rem; padding: 5px 10px; border-radius: 8px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #6ee7b7; z-index: 35; display: none; }
+  .cam-badge.active { display: block; }
   .loading { position: absolute; inset: 0; background: #020617; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; z-index: 40; }
   .spinner { width: 42px; height: 42px; border: 3px solid #1e293b; border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .cam-badge { position: absolute; top: 14px; left: 14px; font-size: 0.7rem; padding: 5px 10px; border-radius: 8px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #6ee7b7; z-index: 35; display: none; }
-  .cam-badge.active { display: block; }
+  .hint { position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); font-size: 0.7rem; color: #64748b; pointer-events: none; z-index: 5; text-align: center; line-height: 1.3; max-width: 80vw; padding: 0 20px; }
+  .asset-chip { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); font-size: 0.72rem; padding: 5px 12px; border-radius: 8px; background: rgba(30, 41, 59, 0.8); border: 1px solid #334155; color: #94a3b8; z-index: 35; backdrop-filter: blur(4px); }
 </style>
 </head>
 <body>
 <div id="app">
   <header>
-    <h1>Live VTO — Virtual Try-On</h1>
-    <div class="tagline">Hairstyles · Jewellery · Clothing — live on camera · MediaPipe + Canvas prototype</div>
+    <h1>Live VTO — Shirt on You</h1>
+    <div class="tagline">Live video processing · Pose tracking · Real-time shirt render on your torso</div>
     <div class="toolbar">
       <button id="btn-cam" class="active">Start Camera</button>
-      <button id="btn-none">None</button>
-      <button id="btn-earrings">Earrings</button>
-      <button id="btn-necklace">Necklace</button>
-      <button id="btn-hair">Hairstyle</button>
-      <button id="btn-shirt">Top / Tee</button>
-      <span id="color-wrap" style="display:none;">
-        <span style="font-size:0.7rem;color:#94a3b8;margin-right:6px;">Colour</span>
-        <div class="color-grid" id="color-grid"></div>
-      </span>
+      <button id="btn-shirt" class="active">Striped Polo</button>
+      <button id="btn-none">No Shirt</button>
       <button id="btn-photo" style="display:none;">Capture</button>
     </div>
   </header>
 
   <div class="cam-badge" id="cam-badge">Camera live</div>
-  <div class="status" id="status">Loading tracker…</div>
+  <div class="asset-chip" id="asset-chip">Asset: assets/shirt.png (uploaded)</div>
+  <div class="status" id="status">Loading pose tracker…</div>
   <div class="stage">
     <video id="input-video" playsinline autoplay muted></video>
     <canvas id="output"></canvas>
   </div>
   <div class="bottom-bar">
-    <div class="category-row" id="category-row"></div>
-    <div class="hint">Face the camera · Swipe categories · Colours change the item · Prototype draws items procedurally — swap in real PNG/3D assets for production</div>
+    <div style="font-size:0.68rem;color:#94a3b8;letter-spacing:0.06em;text-transform:uppercase;">Live render</div>
   </div>
-  <div class="loading" id="loading"><div class="spinner"></div><div style="font-size:0.8rem;color:#94a3b8;">Loading face tracker (MediaPipe)…</div></div>
+  <div class="hint">Stand facing the camera · The shirt tracks your shoulders and torso · MediaPipe Pose Landmarker runs in-browser</div>
+  <div class="loading" id="loading"><div class="spinner"></div><div style="font-size:0.8rem;color:#94a3b8;">Loading pose tracker (MediaPipe)…</div></div>
 </div>
 
 <script type="importmap">
@@ -79,9 +67,10 @@
 </script>
 
 <script type="module">
-import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
+import { PoseLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 
-const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task';
+const SHIRT_URL = 'assets/shirt.png';
 
 const video = document.getElementById('input-video');
 const canvas = document.getElementById('output');
@@ -91,71 +80,53 @@ const loading = document.getElementById('loading');
 const camBadge = document.getElementById('cam-badge');
 const camBtn = document.getElementById('btn-cam');
 
-let faceLandmarker = null;
+let poseLandmarker = null;
 let cameraStarted = false;
-let state = {
-  category: 'earrings', // none | earrings | necklace | hair | shirt
-  color: '#d4af37',
-  mirror: true
+let shirtImg = null;
+let state = { showShirt: true, mirror: true };
+
+// Preload shirt asset
+shirtImg = new Image();
+shirtImg.crossOrigin = 'anonymous';
+shirtImg.src = SHIRT_URL;
+shirtImg.onload = () => {
+  status.textContent = 'Shirt asset loaded — tracker loading…';
+};
+shirtImg.onerror = () => {
+  console.warn('Shirt image failed to load (CORS or path). Will draw fallback.');
 };
 
-const COLORS = [
-  { id: 'gold', hex: '#d4af37' },
-  { id: 'silver', hex: '#c0c0c0' },
-  { id: 'rose', hex: '#e7a393' },
-  { id: 'black', hex: '#0f172a' },
-  { id: 'navy', hex: '#1e3a8a' },
-  { id: 'wine', hex: '#7f1d1d' },
-  { id: 'white', hex: '#f8fafc' },
-  { id: 'emerald', hex: '#10b981' },
-];
+// Pose landmark indices
+const LS = 11; // left shoulder
+const RS = 12; // right shoulder;
+const LH = 23; // left hip
+const RH = 24; // right hip;
 
-// ---------- UI wiring ----------
-function setCategory(cat) {
-  state.category = cat;
-  document.querySelectorAll('.category-btn').forEach(b => b.classList.toggle('active', b.dataset.cat === cat));
-  document.getElementById('color-wrap').style.display = (cat === 'none') ? 'none' : 'flex';
-  status.textContent = cat === 'none' ? 'Tracker active — no item' : `Tracker active — ${cat}`;
+function norm(lm, w, h) { return { x: lm.x * w, y: lm.y * h }; }
+
+// ---------- UI ----------
+function setShirt(show) {
+  state.showShirt = show;
+  document.getElementById('btn-shirt').classList.toggle('active', show);
+  document.getElementById('btn-none').classList.toggle('active', !show);
+  status.textContent = show ? 'Tracker active — shirt on body' : 'Tracker active — no shirt';
 }
-
-document.getElementById('btn-none').dataset.cat = 'none';
-document.getElementById('btn-earrings').dataset.cat = 'earrings';
-document.getElementById('btn-necklace').dataset.cat = 'necklace';
-document.getElementById('btn-hair').dataset.cat = 'hair';
-document.getElementById('btn-shirt').dataset.cat = 'shirt';
-document.querySelectorAll('.category-btn').forEach(b => {
-  b.addEventListener('click', () => setCategory(b.dataset.cat));
-});
-
-const colorGrid = document.getElementById('color-grid');
-COLORS.forEach(c => {
-  const s = document.createElement('div');
-  s.className = 'swatch';
-  s.style.background = c.hex;
-  s.dataset.hex = c.hex;
-  s.addEventListener('click', () => {
-    state.color = c.hex;
-    document.querySelectorAll('.swatch').forEach(x => x.classList.toggle('selected', x === s));
-  });
-  colorGrid.appendChild(s);
-});
-colorGrid.firstChild.classList.add('selected');
-state.color = COLORS[0].hex;
+document.getElementById('btn-shirt').addEventListener('click', () => setShirt(true));
+document.getElementById('btn-none').addEventListener('click', () => setShirt(false));
 
 camBtn.addEventListener('click', async () => {
   if (!cameraStarted) await startCamera();
   else stopCamera();
 });
 
-// ---------- Category labels ----------
-const catLabels = { none: 'None', earrings: 'Earrings', necklace: 'Necklace', hair: 'Hairstyle', shirt: 'Top / Tee' };
-const row = document.getElementById('category-row');
-Object.entries(catLabels).forEach(([key, label]) => {
-  const b = document.createElement('button');
-  b.className = 'category-btn' + (key === state.category ? ' active' : '');
-  b.dataset.cat = key;
-  b.innerHTML = `<div class="swatch" style="background:${key==='none'?'#334155':COLORS.find(c=>c.id==='gold').hex};border-radius:4px;"></div><span class="label">${label}</span>`;
-  row.appendChild(b);
+document.getElementById('btn-photo').addEventListener('click', () => {
+  const tmp = document.createElement('canvas');
+  tmp.width = canvas.width; tmp.height = canvas.height;
+  tmp.getContext('2d').drawImage(canvas, 0, 0);
+  const link = document.createElement('a');
+  link.download = 'vto-shirt-snapshot.png';
+  link.href = tmp.toDataURL('image/png');
+  link.click();
 });
 
 // ---------- Camera ----------
@@ -171,7 +142,7 @@ async function startCamera() {
     camBtn.classList.remove('active');
     camBadge.classList.add('active');
     document.getElementById('btn-photo').style.display = 'inline-block';
-    status.textContent = 'Camera on — initialising tracker…';
+    status.textContent = 'Camera on — initialising pose tracker…';
     await initTracker();
   } catch (err) {
     console.error(err);
@@ -193,184 +164,99 @@ function stopCamera() {
   status.textContent = 'Camera stopped';
 }
 
-// ---------- MediaPipe tracker ----------
+// ---------- MediaPipe Pose tracker ----------
 async function initTracker() {
   try {
     const vision = await FilesetResolver.forVisionTasks(
       'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
     );
-    faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+    poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
       baseOptions: { modelAssetPath: MODEL_URL },
       runningMode: 'VIDEO',
-      numFaces: 1
+      numPoses: 1
     });
     loading.style.display = 'none';
-    status.textContent = 'Tracker ready — start camera';
+    status.textContent = 'Pose tracker ready — start camera';
     camBtn.disabled = false;
-    detect();
+    detectLoop();
   } catch (err) {
     console.error(err);
-    status.textContent = 'Tracker failed to load.';
-    loading.innerHTML = '<div style="color:#f87171;">Tracker failed to load — see console.</div>';
+    status.textContent = 'Pose tracker failed to load.';
+    loading.innerHTML = '<div style="color:#f87171;">Tracker failed — see console.</div>';
   }
 }
 
-let lastTime = 0;
-function detect() {
-  if (!cameraStarted || !faceLandmarker) { return; }
-  const now = performance.now();
-  faceLandmarker.detectForVideo(video, now);
-  const results = faceLandmarker.getLatestResult ? faceLandmarker.getLatestResult() : null;
-  // detectForVideo is async in newer versions; fallback handled below
-  draw();
-  requestAnimationFrame(detect);
-}
-
-// Use the callback-based result for VIDEO mode
 function detectLoop() {
-  if (!cameraStarted || !faceLandmarker) return;
+  if (!cameraStarted || !poseLandmarker) return;
   const now = performance.now();
-  faceLandmarker.detectForVideo(video, now, (result) => {
+  poseLandmarker.detectForVideo(video, now, (result) => {
     draw(result);
   });
   requestAnimationFrame(detectLoop);
 }
 
-// ---------- Drawing helpers ----------
-function norm(lm, w, h) { return { x: lm.x * w, y: lm.y * h }; }
+// ---------- Draw shirt on torso ----------
+function drawShirtOnBody(lm, w, h) {
+  if (!shirtImg || !shirtImg.complete) return;
 
-function getBBox(lm, w, h) {
-  let minX = 1, minY = 1, maxX = 0, maxY = 0;
-  lm.forEach(p => {
-    minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
-    maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
-  });
-  return { x: minX * w, y: minY * h, width: (maxX - minX) * w, height: (maxY - minY) * h };
-}
+  const ls = norm(lm[LS], w, h);  // left shoulder
+  const rs = norm(lm[RS], w, h);  // right shoulder
+  const lh = norm(lm[LH], w, h);  // left hip
+  const rh = norm(lm[RH], w, h);  // right hip
 
-function drawCircle(x, y, r, color, fill = true) {
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  if (fill) ctx.fill();
-  else { ctx.lineWidth = 3; ctx.strokeStyle = color; ctx.stroke(); }
-  ctx.closePath();
-}
+  // Shoulder midpoint and hip midpoint
+  const smx = (ls.x + rs.x) / 2;
+  const smy = (ls.y + rs.y) / 2;
+  const hmx = (lh.x + rh.x) / 2;
+  const hmy = (lh.y + rh.y) / 2;
 
-function drawEarrings(lm, w, h, color) {
-  const left = norm(lm[234], w, h);   // left cheek / ear area
-  const right = norm(lm[454], w, h);  // right cheek / ear area
-  const drop = 30;
+  // Shoulder width and torso length
+  const shoulderW = Math.hypot(rs.x - ls.x, rs.y - ls.y);
+  const torsoH = Math.hypot(hmx - smx, hmy - smy);
+
+  if (shoulderW < 20 || torsoH < 20) return;
+
+  // Shirt sizing: width ~ 2.2x shoulder width, height ~ 1.9x torso length
+  const shirtW = shoulderW * 2.4;
+  const shirtH = torsoH * 1.9;
+
+  // Aspect-correct the image so it isn't stretched
+  const imgAspect = shirtImg.naturalWidth / shirtImg.naturalHeight;
+  let drawW = shirtW;
+  let drawH = shirtW / imgAspect;
+  if (drawH < shirtH * 0.75) { drawH = shirtH; drawW = shirtH * imgAspect; }
+
+  // Angle of the shoulders (for rotation)
+  const angle = Math.atan2(rs.y - ls.y, rs.x - ls.x);
+
+  // Position: shirt center slightly below shoulder midpoint (collar area)
+  const cx = smx;
+  const cy = smy + torsoH * 0.12;
+
   ctx.save();
-  ctx.globalAlpha = 0.92;
-  // stud
-  drawCircle(left.x, left.y, 7, color);
-  drawCircle(right.x, right.y, 7, color);
-  // dangling chain + bead
-  [left, right].forEach(p => {
-    ctx.beginPath(); ctx.moveTo(p.x, p.y + 8); ctx.lineTo(p.x, p.y + drop); ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.stroke();
-    drawCircle(p.x, p.y + drop, 5.5, color);
-  });
-  ctx.restore();
-}
-
-function drawNecklace(lm, w, h, color) {
-  const left = norm(lm[234], w, h);
-  const right = norm(lm[454], w, h);
-  const chin = norm(lm[152], w, h);
-  const midY = Math.max(left.y, right.y) + 22;
-  ctx.save();
-  ctx.globalAlpha = 0.9;
-  ctx.beginPath(); ctx.moveTo(left.x, left.y + 10); ctx.lineTo(right.x, right.y + 10);
-  ctx.lineTo(chin.x, chin.y - 12); ctx.lineTo(left.x, left.y + 10);
-  ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
-  drawCircle(chin.x, chin.y - 8, 8, color);
-  ctx.restore();
-}
-
-function drawHair(lm, w, h, color) {
-  const forehead = norm(lm[10], w, h);
-  const left = norm(lm[234], w, h);
-  const right = norm(lm[454], w, h);
-  const top = Math.max(0, forehead.y - 70);
-  const width = Math.max(60, (right.x - left.x) * 1.15);
-  const cx = (left.x + right.x) / 2;
-  ctx.save();
-  ctx.globalAlpha = 0.88;
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.moveTo(cx - width * 0.55, top + 20);
-  ctx.quadraticCurveTo(cx - width * 0.6, top - 30, cx, top - 55);
-  ctx.quadraticCurveTo(cx + width * 0.6, top - 30, cx + width * 0.55, top + 20);
-  ctx.quadraticCurveTo(cx + width * 0.75, top + 90, cx, top + 110);
-  ctx.quadraticCurveTo(cx - width * 0.75, top + 90, cx - width * 0.55, top + 20);
-  ctx.closePath();
-  ctx.fill();
-  // fringe
-  ctx.beginPath();
-  ctx.moveTo(cx - width * 0.35, top + 10);
-  ctx.quadraticCurveTo(cx, top - 25, cx + width * 0.35, top + 10);
-  ctx.strokeStyle = color; ctx.lineWidth = 14; ctx.lineCap = 'round'; ctx.stroke();
-  ctx.restore();
-}
-
-function drawShirt(lm, w, h, color) {
-  const chin = norm(lm[152], w, h);
-  const left = norm(lm[234], w, h);
-  const right = norm(lm[454], w, h);
-  const faceW = right.x - left.x;
-  const cx = (left.x + right.x) / 2;
-  const top = chin.y + 10;
-  const width = faceW * 2.3;
-  const height = faceW * 1.7;
-  ctx.save();
-  ctx.globalAlpha = 0.9;
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.moveTo(cx - width * 0.45, top);
-  ctx.lineTo(cx - width * 0.45, top + height);
-  ctx.lineTo(cx + width * 0.55, top + height);
-  ctx.lineTo(cx + width * 0.55, top);
-  ctx.lineTo(cx + width * 0.12, top - faceW * 0.5);
-  ctx.lineTo(cx, top - faceW * 0.35);
-  ctx.lineTo(cx - width * 0.12, top - faceW * 0.5);
-  ctx.closePath();
-  ctx.fill();
-  // neckline
-  ctx.beginPath();
-  ctx.moveTo(cx - width * 0.18, top - faceW * 0.42);
-  ctx.lineTo(cx, top - faceW * 0.28);
-  ctx.lineTo(cx + width * 0.18, top - faceW * 0.42);
-  ctx.strokeStyle = color; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke();
+  // Move to center, rotate to match shoulder angle, then draw centered
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+  ctx.drawImage(shirtImg,
+    -drawW / 2, -drawH / 2, drawW, drawH);
   ctx.restore();
 }
 
 function draw(result) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (!result || !result.faceLandmarks || result.faceLandmarks.length === 0) return;
-  const lm = result.faceLandmarks[0];
+  if (!result || !result.poseLandmarks || result.poseLandmarks.length === 0) return;
+
+  const lm = result.poseLandmarks[0];
   const w = canvas.width, h = canvas.height;
-  const color = state.color;
-  if (state.category === 'earrings') drawEarrings(lm, w, h, color);
-  else if (state.category === 'necklace') drawNecklace(lm, w, h, color);
-  else if (state.category === 'hair') drawHair(lm, w, h, color);
-  else if (state.category === 'shirt') drawShirt(lm, w, h, color);
+
+  if (state.showShirt) {
+    drawShirtOnBody(lm, w, h);
+  }
 }
 
-// ---------- photo capture ----------
-document.getElementById('btn-photo').addEventListener('click', () => {
-  const tmp = document.createElement('canvas');
-  tmp.width = canvas.width; tmp.height = canvas.height;
-  tmp.getContext('2d').drawImage(canvas, 0, 0);
-  const link = document.createElement('a');
-  link.download = 'vto-snapshot.png';
-  link.href = tmp.toDataURL('image/png');
-  link.click();
-});
-
-// Start: init tracker first (model load), camera button starts video
+// Init tracker on load (model load), camera starts when user clicks
 initTracker();
-loading.textContent = 'Loading face tracker… click Start Camera when ready';
+loading.textContent = 'Loading pose tracker… click Start Camera when ready';
 </script>
 </body>
 </html>
